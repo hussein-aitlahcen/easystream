@@ -70,7 +70,7 @@ instance {-# OVERLAPS #-} IsStream t => Semigroup (t m a) where
   (<>) s s' = fromStream $ go (toStream s)
     where
       go (Stream f) = Stream $ \yld ->
-        let run s'' = unStream s'' yld
+        let run (Stream g) = g yld
         in f $ \case
           Stop            -> run (toStream s')
           (Singleton a)   -> yld (Continue a (toStream s'))
@@ -81,11 +81,11 @@ instance {-# OVERLAPS #-} IsStream t => Monoid (t m a) where
   mappend = (<>)
 
 instance {-# OVERLAPS #-} IsStream t => Functor (t m) where
-  fmap f s = fromStream $ go $ toStream s
+  fmap f = fromStream . go . toStream
     where
       go (Stream g) = Stream $ \yld -> g $ \case
-        Stop           -> yld Stop
-        (Singleton a)  -> yld (Singleton (f a))
+        Stop            -> yld Stop
+        (Singleton a)   -> yld (Singleton (f a))
         (Continue a s') -> yld (Continue (f a) (go s'))
 
 instance {-# OVERLAPS #-} (IsStream t, Monad m) =>  Applicative (t m) where
@@ -96,23 +96,23 @@ instance {-# OVERLAPS #-} (IsStream t, Monad m) => Monad (t m) where
   s >>= f = mu (fmap (toStream . f) s)
 
 sjoin :: Stream m (Stream m a) -> Stream m a
-sjoin ss = Stream $ \yld ->
-  let run s = unStream s yld
-  in unStream ss $ \case
+sjoin (Stream f) = Stream $ \yld ->
+  let run (Stream g) = g yld
+  in f $ \case
     Stop             -> yld Stop
     (Singleton s)    -> run s
     (Continue s ss') -> run (s <> sjoin ss')
 
 scojoin :: Stream m (Stream m a) -> Stream m a
-scojoin ss = Stream $ \yld ->
-  let run s = unStream s yld
-  in unStream ss $ \case
-      Stop             -> yld Stop
-      (Singleton s)    -> run s
-      (Continue s ss') -> run $ Stream $ \yld1 -> unStream s $ \case
-        Stop            -> yld1 Stop
-        (Singleton a)   -> yld1 (Continue a (scojoin ss'))
-        (Continue a s') -> yld1 (Continue a (scojoin $ ss' <> singleton s'))
+scojoin (Stream f) = Stream $ \yld ->
+  let run (Stream g) = g yld
+  in f $ \case
+    Stop             -> yld Stop
+    (Singleton s)    -> run s
+    (Continue (Stream h) ss') -> run $ Stream $ \yld1 -> h $ \case
+      Stop            -> yld1 Stop
+      (Singleton a)   -> yld1 (Continue a (scojoin ss'))
+      (Continue a s') -> yld1 (Continue a (scojoin $ ss' <> singleton s'))
 
 newtype SerialT m a = SerialT { unSerialT  :: Stream m a }
 
@@ -131,7 +131,7 @@ instance IsStream CoserialT where
   mu = CoserialT . scojoin . unCoserialT
 
 foldrM :: (IsStream t, Monad m) => (a -> b -> m b) -> b -> t m a -> m b
-foldrM step acc s = go (toStream s)
+foldrM step acc = go . toStream
   where
     go (Stream f) = f $ \case
       Stop            -> pure acc
