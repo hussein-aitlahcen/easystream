@@ -58,7 +58,7 @@ class IsStream (t :: (Type -> Type) -> Type -> Type) where
   fromStream :: Stream m a -> t m a
   toStream :: t m a -> Stream m a
   point :: a -> t m a
-  mu :: t m (t m a) -> t m a
+  mu :: t m (Stream m a) -> t m a
 
 instance IsStream Stream where
   fromStream = id
@@ -93,7 +93,7 @@ instance {-# OVERLAPS #-} (IsStream t, Monad m) =>  Applicative (t m) where
   (<*>) = ap
 
 instance {-# OVERLAPS #-} (IsStream t, Monad m) => Monad (t m) where
-  s >>= f = mu (fmap f s)
+  s >>= f = mu (fmap (toStream . f) s)
 
 sjoin :: Stream m (Stream m a) -> Stream m a
 sjoin ss = Stream $ \yld ->
@@ -120,7 +120,7 @@ instance IsStream SerialT where
   fromStream = SerialT
   toStream = unSerialT
   point = SerialT . singleton
-  mu = SerialT . sjoin . unSerialT . fmap unSerialT
+  mu = SerialT . sjoin . unSerialT
 
 newtype CoserialT m a = CoserialT { unCoserialT :: Stream m a }
 
@@ -128,7 +128,7 @@ instance IsStream CoserialT where
   fromStream = CoserialT
   toStream = unCoserialT
   point = CoserialT . singleton
-  mu = CoserialT . scojoin . unCoserialT . fmap unCoserialT
+  mu = CoserialT . scojoin . unCoserialT
 
 foldrM :: (IsStream t, Monad m) => (a -> b -> m b) -> b -> t m a -> m b
 foldrM step acc s = go (toStream s)
