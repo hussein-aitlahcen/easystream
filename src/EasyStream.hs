@@ -25,6 +25,7 @@
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes            #-}
+{-# OPTIONS_GHC -fno-warn-orphans  #-}
 
 module EasyStream where
 
@@ -35,11 +36,15 @@ import           Data.Semigroup (Semigroup (..))
 snil :: IsStream t => t m a
 snil = fromStream $ Stream ($ Stop)
 
+srepeat :: IsStream t => a -> t m a
+srepeat x = let s = Stream ($ Continue x s)
+            in fromStream s
+
 singleton :: IsStream t => a -> t m a
-singleton a = fromStream $ Stream ($ Singleton a)
+singleton x = fromStream $ Stream ($ Singleton x)
 
 scons :: IsStream t => a -> t m a -> t m a
-scons a s = fromStream $ Stream ($ Continue a (toStream s))
+scons x s = fromStream $ Stream ($ Continue x (toStream s))
 
 (>:) :: IsStream t => a -> t m a -> t m a
 (>:) = scons
@@ -66,7 +71,7 @@ instance IsStream Stream where
   point = singleton
   mu = sjoin
 
-instance {-# OVERLAPS #-} IsStream t => Semigroup (t m a) where
+instance {-# OVERLAPPING #-} IsStream t => Semigroup (t m a) where
   (<>) s s' = fromStream $ go (toStream s)
     where
       go (Stream f) = Stream $ \yld ->
@@ -76,11 +81,11 @@ instance {-# OVERLAPS #-} IsStream t => Semigroup (t m a) where
           (Singleton a)   -> yld (Continue a (toStream s'))
           (Continue a as) -> yld (Continue a (go as))
 
-instance {-# OVERLAPS #-} IsStream t => Monoid (t m a) where
+instance {-# OVERLAPPING #-} IsStream t => Monoid (t m a) where
   mempty = snil
   mappend = (<>)
 
-instance {-# OVERLAPS #-} IsStream t => Functor (t m) where
+instance {-# OVERLAPPING #-} IsStream t => Functor (t m) where
   fmap f = fromStream . go . toStream
     where
       go (Stream g) = Stream $ \yld -> g $ \case
@@ -88,11 +93,11 @@ instance {-# OVERLAPS #-} IsStream t => Functor (t m) where
         (Singleton a)   -> yld (Singleton (f a))
         (Continue a s') -> yld (Continue (f a) (go s'))
 
-instance {-# OVERLAPS #-} (IsStream t, Monad m) =>  Applicative (t m) where
+instance (IsStream t, Monad m) =>  Applicative (t m) where
   pure = point
   (<*>) = ap
 
-instance {-# OVERLAPS #-} (IsStream t, Monad m) => Monad (t m) where
+instance (IsStream t, Monad m) => Monad (t m) where
   s >>= f = mu (fmap (toStream . f) s)
 
 sjoin :: Stream m (Stream m a) -> Stream m a
@@ -101,18 +106,18 @@ sjoin (Stream f) = Stream $ \yld ->
   in f $ \case
     Stop             -> yld Stop
     (Singleton s)    -> run s
-    (Continue s ss') -> run (s <> sjoin ss')
+    (Continue s ss) -> run (s <> sjoin ss)
 
 scojoin :: Stream m (Stream m a) -> Stream m a
 scojoin (Stream f) = Stream $ \yld ->
   let run (Stream g) = g yld
   in f $ \case
-    Stop             -> yld Stop
-    (Singleton s)    -> run s
-    (Continue (Stream h) ss') -> run $ Stream $ \yld1 -> h $ \case
-      Stop            -> yld1 Stop
-      (Singleton a)   -> yld1 (Continue a (scojoin ss'))
-      (Continue a s') -> yld1 (Continue a (scojoin $ ss' <> singleton s'))
+    Stop                     -> yld Stop
+    (Singleton s)            -> run s
+    (Continue (Stream h) ss) -> run $ Stream $ \yld1 -> h $ \case
+      Stop           -> yld1 Stop
+      (Singleton a)  -> yld1 (Continue a (scojoin ss))
+      (Continue a s) -> yld1 (Continue a (scojoin $ ss <> singleton s))
 
 newtype SerialT m a = SerialT { unSerialT  :: Stream m a }
 
@@ -134,9 +139,9 @@ foldrM :: (IsStream t, Monad m) => (a -> b -> m b) -> b -> t m a -> m b
 foldrM step acc = go . toStream
   where
     go (Stream f) = f $ \case
-      Stop            -> pure acc
-      (Singleton a)   -> step a acc
-      (Continue a s') -> go s' >>= step a
+      Stop           -> pure acc
+      (Singleton a)  -> step a acc
+      (Continue a s) -> step a =<< go s
 
 toList :: (IsStream t, Monad m) => t m a -> m ([] a)
 toList = foldrM (\x xs -> pure (x : xs)) []

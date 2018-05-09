@@ -4,12 +4,13 @@ let
 
   inherit (nixpkgs) pkgs;
 
-  f = { mkDerivation, base, stdenv }:
+  f = { mkDerivation, base, hspec, stdenv }:
       mkDerivation {
         pname = "easystream";
         version = "0.1.0.0";
         src = ./.;
         libraryHaskellDepends = [ base ];
+        testHaskellDepends = [ base hspec ];
         homepage = "http://github.com/hussein-aitlahcen/easystream";
         license = stdenv.lib.licenses.gpl3;
       };
